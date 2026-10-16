@@ -21,11 +21,15 @@ import {
   type TimelineImageItem,
   createThumbnailUrl,
 } from '@/components/EffectLayerTimeline';
+import { ShowcaseGrid } from '@/components/ShowcaseGrid';
 
 const ALL_EFFECT_LIST = getAllEffects();
 
 export default function HomePage() {
   const allEffects = ALL_EFFECT_LIST;
+
+  // View state: 'exhibition' (Showcase Grid) vs 'studio' (Compositing Workstation)
+  const [currentView, setCurrentView] = useState<'exhibition' | 'studio'>('exhibition');
 
   // Multi-Image Project Queue
   const [images, setImages] = useState<TimelineImageItem[]>([]);
@@ -43,7 +47,17 @@ export default function HomePage() {
   // Global Project Color Palette (editorial consistency across images)
   const [currentPalette, setCurrentPalette] = useState<ColorPalette>(DEFAULT_PALETTE);
 
-  // Initial setup: Load 3 preset images & initial 2-layer composition stack
+  // Initial URL check: if ?view=studio or #studio, launch directly into studio
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      if (searchParams.get('view') === 'studio' || window.location.hash === '#studio') {
+        setCurrentView('studio');
+      }
+    }
+  }, []);
+
+  // Initial setup: Load 5 preset images & initial 2-layer composition stack
   useEffect(() => {
     const initialImages: TimelineImageItem[] = SAMPLE_IMAGES.map((sample, idx) => {
       const data = sample.generate(640, 640);
@@ -57,6 +71,7 @@ export default function HomePage() {
       };
     });
 
+    const allIndices = initialImages.map((_, i) => i);
     const fmEffect = getEffectById('stochastic-fm-screen') ?? ALL_EFFECT_LIST[0]!;
     const chromEffect = getEffectById('lateral-chromatic-dispersion') ?? ALL_EFFECT_LIST[1]!;
 
@@ -70,7 +85,7 @@ export default function HomePage() {
         blendMode: 'normal',
         parameters: getDefaultParamValues(fmEffect),
         color: LAYER_TRACK_COLORS[1]!, // orange
-        spanIndices: [0, 1, 2],
+        spanIndices: allIndices,
       },
       {
         id: 'layer-02-chrom',
@@ -81,7 +96,7 @@ export default function HomePage() {
         blendMode: 'screen',
         parameters: getDefaultParamValues(chromEffect),
         color: LAYER_TRACK_COLORS[4]!, // cyan
-        spanIndices: [0, 1, 2],
+        spanIndices: allIndices,
       },
     ];
 
@@ -176,10 +191,91 @@ export default function HomePage() {
     }
   }, [activeImage, layers, activeImageIndex, scheduleComposite]);
 
+  // Launch Studio Workstation with optional preset image and effect selected
+  const handleLaunchStudio = (sampleId?: string, effectId?: string) => {
+    if (sampleId) {
+      const existingIdx = images.findIndex(
+        (img) => img.id.includes(sampleId) || img.name.toLowerCase().includes(sampleId.replace('-', ' '))
+      );
+      if (existingIdx !== -1) {
+        setActiveImageIndex(existingIdx);
+      } else {
+        const sample = SAMPLE_IMAGES.find((s) => s.id === sampleId);
+        if (sample) {
+          const data = sample.generate(640, 640);
+          const newItem: TimelineImageItem = {
+            id: `sample-${sample.id}-${Date.now()}`,
+            name: sample.name,
+            original: data,
+            thumbnailUrl: createThumbnailUrl(data),
+            width: 640,
+            height: 640,
+          };
+          const newIdx = images.length;
+          setImages((prev) => [...prev, newItem]);
+          setActiveImageIndex(newIdx);
+          setLayers((prev) =>
+            prev.map((l) => ({
+              ...l,
+              spanIndices: [...l.spanIndices, newIdx],
+            }))
+          );
+        }
+      }
+    }
+
+    if (effectId) {
+      const effect = getEffectById(effectId);
+      if (effect) {
+        if (layers.length > 0 && activeLayerId) {
+          setLayers((prev) =>
+            prev.map((l) =>
+              l.id === activeLayerId
+                ? {
+                    ...l,
+                    name: effect.name,
+                    effectId: effect.id,
+                    parameters: getDefaultParamValues(effect),
+                  }
+                : l
+            )
+          );
+        } else {
+          const newLayer: EffectLayer = {
+            id: `layer-${Date.now()}`,
+            name: effect.name,
+            effectId: effect.id,
+            enabled: true,
+            opacity: 100,
+            blendMode: 'normal',
+            parameters: getDefaultParamValues(effect),
+            color: LAYER_TRACK_COLORS[0]!,
+            spanIndices: images.map((_, i) => i),
+          };
+          setLayers([newLayer]);
+          setActiveLayerId(newLayer.id);
+        }
+      }
+    }
+
+    setCurrentView('studio');
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', '?view=studio');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleSwitchToExhibition = () => {
+    setCurrentView('exhibition');
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', '/');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   // Handle selecting an effect from the algorithm catalog
   const handleSelectEffect = (effect: EffectDefinition) => {
     if (!activeLayer) {
-      // Add layer if none exists
       const newLayer: EffectLayer = {
         id: `layer-${Date.now()}`,
         name: effect.name,
@@ -196,7 +292,6 @@ export default function HomePage() {
       return;
     }
 
-    // Update active layer's effect and reset its params
     setLayers((prev) =>
       prev.map((l) =>
         l.id === activeLayer.id
@@ -296,7 +391,6 @@ export default function HomePage() {
     const newIndex = images.length;
     setImages((prev) => [...prev, newItem]);
     setActiveImageIndex(newIndex);
-    // Span existing layers to include new image
     setLayers((prev) =>
       prev.map((l) => ({
         ...l,
@@ -338,137 +432,272 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-black text-white font-mono flex flex-col select-none">
-      {/* Edge-to-Edge Technical Grid Header */}
-      <header className="grid grid-cols-1 md:grid-cols-12 border-b border-[#262626] bg-black text-xs uppercase">
+      {/* Edge-to-Edge Technical Grid Header (Swiss International Style) */}
+      <header className="grid grid-cols-1 md:grid-cols-12 border-b border-[#262626] bg-black text-xs uppercase sticky top-0 z-50">
         {/* Logo Cell */}
-        <div className="md:col-span-3 flex items-center border-b md:border-b-0 md:border-r border-[#262626] px-4 py-2.5">
-          <span className="text-sm font-black tracking-tight text-white">[Lenna]</span>
-          <span className="ml-2 text-[10px] text-neutral-500">{"// COMPOSITING LAB"}</span>
+        <div className="md:col-span-3 flex items-center justify-between border-b md:border-b-0 md:border-r border-[#262626] px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-black tracking-tight text-white">[Lenna]</span>
+            <span className="text-[10px] text-neutral-500">
+              {currentView === 'exhibition' ? '// EDITORIAL LAB' : '// COMPOSITING LAB'}
+            </span>
+          </div>
+
+          {/* Quick View Navigation Switcher */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleSwitchToExhibition}
+              className={`px-2 py-0.5 text-[10px] font-bold border transition ${
+                currentView === 'exhibition'
+                  ? 'bg-white text-black border-white'
+                  : 'bg-black text-neutral-400 border-[#333] hover:border-neutral-400 hover:text-white'
+              }`}
+            >
+              [GRID]
+            </button>
+            <button
+              onClick={() => handleLaunchStudio()}
+              className={`px-2 py-0.5 text-[10px] font-bold border transition ${
+                currentView === 'studio'
+                  ? 'bg-white text-black border-white'
+                  : 'bg-black text-neutral-400 border-[#333] hover:border-neutral-400 hover:text-white'
+              }`}
+            >
+              [STUDIO]
+            </button>
+          </div>
         </div>
 
-        {/* System Meta Cell */}
-        <div className="md:col-span-4 flex items-center border-b md:border-b-0 md:border-r border-[#262626] px-4 py-2 text-[11px] text-neutral-400 gap-3 overflow-x-auto no-scrollbar">
+        {/* System Meta & Navigation Cell */}
+        <div className="md:col-span-5 flex items-center border-b md:border-b-0 md:border-r border-[#262626] px-4 py-2 text-[11px] text-neutral-400 gap-3 overflow-x-auto no-scrollbar">
           <span>ALGORITHMS: <strong className="text-white">56</strong></span>
           <span className="text-neutral-700">|</span>
-          <span>STACK: <strong className="text-white">{layers.length} LAYERS</strong></span>
+          <span>PRESETS: <strong className="text-white">5 HDR</strong></span>
           <span className="text-neutral-700">|</span>
-          <span>ESTHETIC: <strong className="text-white">AFTER EFFECTS TIMELINE</strong></span>
+          {currentView === 'studio' ? (
+            <span>STACK: <strong className="text-white">{layers.length} LAYERS</strong></span>
+          ) : (
+            <span>STYLE: <strong className="text-white">XV.LABIENAL.ES GRID</strong></span>
+          )}
         </div>
 
-        {/* Color Palette Station Cell (replaces old wasted SYS_STATUS) */}
-        <div className="md:col-span-5 flex items-center bg-[#070709]">
-          <PaletteManager
-            currentPalette={currentPalette}
-            onSelectPalette={setCurrentPalette}
-            onUpdateColors={handleUpdatePaletteColors}
-            isProcessing={isProcessing}
-          />
+        {/* Top Right Action Cell */}
+        <div className="md:col-span-4 flex items-center justify-end bg-[#070709] px-3 py-1.5">
+          {currentView === 'studio' ? (
+            <PaletteManager
+              currentPalette={currentPalette}
+              onSelectPalette={setCurrentPalette}
+              onUpdateColors={handleUpdatePaletteColors}
+              isProcessing={isProcessing}
+            />
+          ) : (
+            <button
+              onClick={() => handleLaunchStudio()}
+              className="border border-white bg-white px-3 py-1 text-[11px] font-bold text-black uppercase tracking-wider transition hover:bg-black hover:text-white"
+            >
+              LAUNCH STUDIO WORKSTATION →
+            </button>
+          )}
         </div>
       </header>
 
-      {/* Flush Image Uploader & Presets Row */}
-      <ImageUploader
-        onImageLoaded={handleImageLoaded}
-        currentImageName={activeImage?.name ?? 'No Image'}
-        imageDimensions={
-          activeImage
-            ? { width: activeImage.width, height: activeImage.height }
-            : undefined
-        }
-      />
+      {/* ========================================================================= */}
+      {/* 1. EXHIBITION HOME PAGE VIEW (ASymmetric visible grids of various sizes) */}
+      {/* ========================================================================= */}
+      {currentView === 'exhibition' && (
+        <main className="flex-1 flex flex-col">
+          {/* Brutalist Editorial Marquee Header Banner */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 border-b border-[#262626] bg-black">
+            <div className="lg:col-span-8 p-6 sm:p-8 lg:p-10 border-b lg:border-b-0 lg:border-r border-[#262626] flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="bg-white text-black font-bold text-[10px] px-2 py-0.5 tracking-wider uppercase">
+                    EDITORIAL MATRIX LAB
+                  </span>
+                  <span className="text-[10px] text-neutral-500 uppercase tracking-widest">
+                    {"// SWISS TECHNICAL GRID"}
+                  </span>
+                </div>
+                <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tighter text-white leading-none">
+                  [Lenna]
+                </h1>
+                <p className="mt-3 text-sm sm:text-base text-neutral-300 font-mono max-w-2xl leading-relaxed">
+                  Algorithmic image transformation tool and editorial matrix lab. Transform photographs and optical targets through over 56 pure mathematical kernels, stochastic halftones, risograph inks, and After Effects compositing.
+                </p>
+              </div>
 
-      {/* 3-Column Flush Workstation Grid (Zero padding, zero margin, full hairlines) */}
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 border-b border-[#262626]">
-        {/* Col 1: Algorithm Catalog (lg:col-span-4 xl:col-span-3) */}
-        <div className="lg:col-span-4 xl:col-span-3 border-b lg:border-b-0 lg:border-r border-[#262626] flex flex-col h-[360px] lg:h-[calc(100vh-340px)] overflow-hidden">
-          <EffectSelector
-            selectedEffectId={activeEffectDef.id}
-            onSelectEffect={handleSelectEffect}
+              <div className="mt-6 pt-4 border-t border-[#1e1e1e] flex flex-wrap items-center gap-4 text-xs text-neutral-400">
+                <div>
+                  <span className="text-neutral-600 block text-[9px]">ENGINE</span>
+                  <strong className="text-white">PURE CLIENT CANVAS</strong>
+                </div>
+                <div className="h-6 w-[1px] bg-[#262626]" />
+                <div>
+                  <span className="text-neutral-600 block text-[9px]">PERFORMANCE</span>
+                  <strong className="text-white">&lt; 4MS PER FRAME</strong>
+                </div>
+                <div className="h-6 w-[1px] bg-[#262626]" />
+                <div>
+                  <span className="text-neutral-600 block text-[9px]">DEPENDENCIES</span>
+                  <strong className="text-white">ZERO WASM / ZERO SERVER</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Action & Spec Column */}
+            <div className="lg:col-span-4 p-6 sm:p-8 bg-[#08080a] flex flex-col justify-between">
+              <div>
+                <span className="text-[10px] text-neutral-500 uppercase tracking-wider block mb-2">
+                  CURATED HDR OPTICAL PRESETS
+                </span>
+                <div className="flex flex-col gap-2 font-mono text-xs">
+                  {SAMPLE_IMAGES.map((sample, idx) => (
+                    <button
+                      key={sample.id}
+                      onClick={() => handleLaunchStudio(sample.id)}
+                      className="group flex items-center justify-between border border-[#262626] bg-black p-2 text-left hover:border-white transition"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-neutral-600 group-hover:text-amber-400 font-bold">
+                          {`[0${idx + 1}]`}
+                        </span>
+                        <span className="text-white truncate font-medium">{sample.name}</span>
+                      </div>
+                      <span className="text-[10px] text-neutral-500 group-hover:text-white">↗</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <button
+                  onClick={() => handleLaunchStudio()}
+                  className="w-full border border-white bg-white text-black py-3 text-xs font-black uppercase tracking-wider hover:bg-black hover:text-white transition flex items-center justify-center gap-2"
+                >
+                  <span>ENTER STUDIO WORKSTATION</span>
+                  <span>→</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Asymmetric Exhibition Mosaic Gallery (Grids of Various Sizes) */}
+          <ShowcaseGrid onLaunchStudio={handleLaunchStudio} />
+        </main>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 2. COMPOSITING STUDIO WORKSTATION VIEW (After Effects Layer Stack)       */}
+      {/* ========================================================================= */}
+      {currentView === 'studio' && (
+        <div className="flex-1 flex flex-col">
+          {/* Flush Image Uploader & Presets Row */}
+          <ImageUploader
+            onImageLoaded={handleImageLoaded}
+            currentImageName={activeImage?.name ?? 'No Image'}
+            imageDimensions={
+              activeImage
+                ? { width: activeImage.width, height: activeImage.height }
+                : undefined
+            }
+          />
+
+          {/* 3-Column Flush Workstation Grid (Zero padding, zero margin, full hairlines) */}
+          <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 border-b border-[#262626]">
+            {/* Col 1: Algorithm Catalog (lg:col-span-4 xl:col-span-3) */}
+            <div className="lg:col-span-4 xl:col-span-3 border-b lg:border-b-0 lg:border-r border-[#262626] flex flex-col h-[360px] lg:h-[calc(100vh-340px)] overflow-hidden">
+              <EffectSelector
+                selectedEffectId={activeEffectDef.id}
+                onSelectEffect={handleSelectEffect}
+              />
+            </div>
+
+            {/* Col 2: Parameter Controls for Active Layer (lg:col-span-3 xl:col-span-3) */}
+            <div className="lg:col-span-3 xl:col-span-3 border-b lg:border-b-0 lg:border-r border-[#262626] flex flex-col h-[340px] lg:h-[calc(100vh-340px)] overflow-hidden">
+              <div className="border-b border-[#262626] bg-[#0c0c10] px-3 py-1.5 text-[10px] flex items-center justify-between">
+                <span className="text-neutral-400 uppercase font-bold">
+                  {"ACTIVE LAYER // "}{activeLayer?.name ?? 'NONE'}
+                </span>
+                {activeLayer && (
+                  <span
+                    className="px-1.5 py-0.2 text-[8px] font-bold text-black uppercase"
+                    style={{ backgroundColor: activeLayer.color }}
+                  >
+                    {activeLayer.blendMode}
+                  </span>
+                )}
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <EffectControls
+                  effect={activeEffectDef}
+                  values={activeParamValues}
+                  onChange={handleParamChange}
+                  onReset={handleResetParams}
+                  onRandomize={handleRandomizeParams}
+                  palette={currentPalette.colors}
+                  onAddToPalette={handleAddToPalette}
+                />
+              </div>
+            </div>
+
+            {/* Col 3: Comparison Viewport & Layer Composite (lg:col-span-5 xl:col-span-6) */}
+            <div className="lg:col-span-5 xl:col-span-6 flex flex-col h-[440px] lg:h-[calc(100vh-340px)] overflow-hidden">
+              {/* Active Composite Banner */}
+              <div className="flex items-center justify-between border-b border-[#262626] bg-[#0d0d0d] px-4 py-2 text-xs">
+                <div className="flex items-center gap-2 truncate">
+                  <span className="font-bold text-white uppercase text-[12px] truncate">
+                    {`COMPOSITE // ${activeImage?.name ?? 'SOURCE'} [${layers.length} LAYERS]`}
+                  </span>
+                  <span className="border border-[#444] px-1 text-[9px] uppercase text-amber-400">
+                    MULTI-PASS
+                  </span>
+                </div>
+                <div className="text-[10px] text-neutral-500 uppercase">
+                  {activeImage ? `${activeImage.width}×${activeImage.height}` : ''}
+                </div>
+              </div>
+
+              {/* Canvas Viewport */}
+              <div className="flex-1 min-h-0">
+                <ComparisonCanvas
+                  originalImage={activeImage?.original ?? null}
+                  transformedImage={transformedImage}
+                  durationMs={renderDuration}
+                  effectName={`${activeImage?.name ?? 'Composite'} (${layers.length} Layers)`}
+                  onApplyAsBase={handleApplyAsBase}
+                />
+              </div>
+            </div>
+          </main>
+
+          {/* Adobe After Effects Style Multi-Layer & Multi-Image Timeline Panel */}
+          <EffectLayerTimeline
+            images={images}
+            activeImageIndex={activeImageIndex}
+            onSelectImageIndex={setActiveImageIndex}
+            onUpdateImages={setImages}
+            layers={layers}
+            activeLayerId={activeLayerId}
+            onSelectLayer={setActiveLayerId}
+            onUpdateLayers={setLayers}
+            currentSelectedEffect={activeEffectDef}
+            isProcessing={isProcessing}
           />
         </div>
+      )}
 
-        {/* Col 2: Parameter Controls for Active Layer (lg:col-span-3 xl:col-span-3) */}
-        <div className="lg:col-span-3 xl:col-span-3 border-b lg:border-b-0 lg:border-r border-[#262626] flex flex-col h-[340px] lg:h-[calc(100vh-340px)] overflow-hidden">
-          <div className="border-b border-[#262626] bg-[#0c0c10] px-3 py-1.5 text-[10px] flex items-center justify-between">
-            <span className="text-neutral-400 uppercase font-bold">
-              {"ACTIVE LAYER // "}{activeLayer?.name ?? 'NONE'}
-            </span>
-            {activeLayer && (
-              <span
-                className="px-1.5 py-0.2 text-[8px] font-bold text-black uppercase"
-                style={{ backgroundColor: activeLayer.color }}
-              >
-                {activeLayer.blendMode}
-              </span>
-            )}
-          </div>
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <EffectControls
-              effect={activeEffectDef}
-              values={activeParamValues}
-              onChange={handleParamChange}
-              onReset={handleResetParams}
-              onRandomize={handleRandomizeParams}
-              palette={currentPalette.colors}
-              onAddToPalette={handleAddToPalette}
-            />
-          </div>
+      {/* Flush Technical Grid Footer (Swiss International Style) */}
+      <footer className="grid grid-cols-1 md:grid-cols-12 text-[10px] text-neutral-600 uppercase bg-black border-t border-[#262626]">
+        <div className="md:col-span-4 border-b md:border-b-0 md:border-r border-[#262626] px-4 py-2 flex items-center justify-between">
+          <span>{"[LENNA] EDITORIAL MATRIX LAB"}</span>
+          <span className="text-neutral-400">[L]</span>
         </div>
-
-        {/* Col 3: Comparison Viewport & Layer Composite (lg:col-span-5 xl:col-span-6) */}
-        <div className="lg:col-span-5 xl:col-span-6 flex flex-col h-[440px] lg:h-[calc(100vh-340px)] overflow-hidden">
-          {/* Active Composite Banner */}
-          <div className="flex items-center justify-between border-b border-[#262626] bg-[#0d0d0d] px-4 py-2 text-xs">
-            <div className="flex items-center gap-2 truncate">
-              <span className="font-bold text-white uppercase text-[12px] truncate">
-                {`COMPOSITE // ${activeImage?.name ?? 'SOURCE'} [${layers.length} LAYERS]`}
-              </span>
-              <span className="border border-[#444] px-1 text-[9px] uppercase text-amber-400">
-                MULTI-PASS
-              </span>
-            </div>
-            <div className="text-[10px] text-neutral-500 uppercase">
-              {activeImage ? `${activeImage.width}×${activeImage.height}` : ''}
-            </div>
-          </div>
-
-          {/* Canvas Viewport */}
-          <div className="flex-1 min-h-0">
-            <ComparisonCanvas
-              originalImage={activeImage?.original ?? null}
-              transformedImage={transformedImage}
-              durationMs={renderDuration}
-              effectName={`${activeImage?.name ?? 'Composite'} (${layers.length} Layers)`}
-              onApplyAsBase={handleApplyAsBase}
-            />
-          </div>
+        <div className="md:col-span-4 border-b md:border-b-0 md:border-r border-[#262626] px-4 py-2 text-center">
+          {"STYLE REFERENCE // SWISS INTERNATIONAL TECHNICAL GRID & XV.LABIENAL.ES"}
         </div>
-      </main>
-
-      {/* Adobe After Effects Style Multi-Layer & Multi-Image Timeline Panel */}
-      <EffectLayerTimeline
-        images={images}
-        activeImageIndex={activeImageIndex}
-        onSelectImageIndex={setActiveImageIndex}
-        onUpdateImages={setImages}
-        layers={layers}
-        activeLayerId={activeLayerId}
-        onSelectLayer={setActiveLayerId}
-        onUpdateLayers={setLayers}
-        currentSelectedEffect={activeEffectDef}
-        isProcessing={isProcessing}
-      />
-
-      {/* Flush Technical Grid Footer */}
-      <footer className="grid grid-cols-1 md:grid-cols-12 text-[10px] text-neutral-600 uppercase bg-black">
-        <div className="md:col-span-4 border-b md:border-b-0 md:border-r border-[#262626] px-4 py-1.5">
-          {"[LENNA] AFTER EFFECTS LAYER COMPOSITING ENGINE"}
-        </div>
-        <div className="md:col-span-4 border-b md:border-b-0 md:border-r border-[#262626] px-4 py-1.5 text-center">
-          {"STYLE REFERENCE // SWISS INTERNATIONAL TECHNICAL GRID"}
-        </div>
-        <div className="md:col-span-4 px-4 py-1.5 text-right">
-          {"LOCAL TIME // "}{new Date().toISOString().slice(0, 10)} UTC
+        <div className="md:col-span-4 px-4 py-2 flex items-center justify-between">
+          <span>{"56 ALGORITHMS ACTIVE"}</span>
+          <span>{"LOCAL TIME // "}{new Date().toISOString().slice(0, 10)} UTC</span>
         </div>
       </footer>
     </div>

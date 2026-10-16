@@ -99,6 +99,9 @@ export const metadata: Metadata = {
     apple: [{ url: "/apple-icon", sizes: "180x180", type: "image/png" }],
   },
   manifest: "/manifest.webmanifest",
+  verification: {
+    google: "Plv7-l-9fD_Sg9-FqpB2yaOhOaV5njShdmBquxUa4fU",
+  },
 };
 
 const geist = Geist({
