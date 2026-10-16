@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <rect width="128" height="128" fill="#09090b"/>
+  <rect x="2" y="2" width="124" height="124" fill="none" stroke="#27272a" stroke-width="2"/>
+  <!-- Technical corner ticks -->
+  <path d="M8 16 H16 M16 8 V16 M120 16 H112 M112 8 V16 M8 112 H16 M16 120 V112 M120 112 H112 M112 120 V112" stroke="#52525b" stroke-width="2"/>
+  <text x="64" y="82" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="62" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="-3">[L]</text>
+</svg>
